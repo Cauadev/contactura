@@ -7,5 +7,6 @@ import com.contactura.contactura.model.ContacturaUser;
 
 @Repository
 public interface ContacturaUserRepository extends JpaRepository<ContacturaUser, Integer>{
-
+	
+	ContacturaUser findByUsername(String username);
 }

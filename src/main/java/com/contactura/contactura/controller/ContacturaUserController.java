@@ -1,14 +1,15 @@
 package com.contactura.contactura.controller;
 
+import java.util.Base64;
 import java.util.List;
 
-import javax.validation.Valid;
+import javax.servlet.http.HttpServletRequest;
 
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -16,13 +17,14 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 
 import com.contactura.contactura.model.ContacturaUser;
 import com.contactura.contactura.repository.ContacturaUserRepository;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 
+@CrossOrigin()
 @RestController
 @RequestMapping("/user")
 public class ContacturaUserController {
@@ -31,49 +33,73 @@ public class ContacturaUserController {
 	@Autowired
 	private ContacturaUserRepository repository;
 	
-	@PostMapping
-	@ResponseStatus(value = HttpStatus.CREATED)
-	public ContacturaUser save(@RequestBody ContacturaUser user) {
-		user.setPassword(criptografarSenha(user.getPassword()));
-		return repository.save(user);
-	}
+	public static Gson gson = new GsonBuilder().setPrettyPrinting().create();
 	
-	private String criptografarSenha(String password) {
-		BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
-		return encoder.encode(password);
+	@RequestMapping("/login")
+	@GetMapping
+	public ResponseEntity<?> login(HttpServletRequest request){
+		String decode = new String(Base64.getDecoder().decode(request.getHeader("Authorization").split(" ")[1]));
+		boolean isAdmin = repository.findByUsername(decode.split(":")[0]).isAdmin();
+		String token = request.getHeader("Authorization")
+				.substring("Basic".length()).trim();
+		return ResponseEntity.ok().body(gson.toJson(token+":"+isAdmin));
 	}
-	
 	
 	@GetMapping
-	public List<ContacturaUser> getAll(){
+	public List<?> findAll(){
 		return repository.findAll();
+		
 	}
 	
-	@GetMapping("/{id}")
-	public ContacturaUser getContact(@PathVariable Integer id){
-		ContacturaUser contato = repository.findById(id)
-		.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "usuario com id passado é inválido."));
-		return contato;
+	@GetMapping(value = "{id}")
+	public ResponseEntity<?> findById(@PathVariable Integer id){
+		
+		return repository.findById(id)
+				.map(user -> ResponseEntity.ok().body(user))
+				.orElse(ResponseEntity.notFound().build());			
+		
 	}
 	
-	@PutMapping("/{id}")
-	public ContacturaUser update(@PathVariable Integer id, @RequestBody @Valid ContacturaUser user) {
-		Integer CONTACT_ID = repository.findById(id)
-		.orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,"id inválido.")).getId();
-		user.setId(CONTACT_ID);
+	@PostMapping
+	@PreAuthorize("hasRole('ADMIN')")
+	public ContacturaUser create(@RequestBody ContacturaUser user){
 		user.setPassword(criptografarSenha(user.getPassword()));
-		user.setAdmin(false);
 		return repository.save(user);
+		
 	}
 	
-	@DeleteMapping(path = {"/{id}"})
+	@PutMapping(value = "{id}")
+	@PreAuthorize("hasRole('ADMIN')")
+	public ResponseEntity<?> update(@PathVariable Integer id, @RequestBody ContacturaUser user){
+		
+		return repository.findById(id)
+				.map(record -> {
+					record.setName(user.getName());
+					record.setUsername(user.getUsername());
+					record.setPassword(criptografarSenha(user.getPassword()));
+					record.setAdmin(user.isAdmin());
+					ContacturaUser update = repository.save(record);
+					return ResponseEntity.ok().body(update);
+				}).orElse(ResponseEntity.notFound().build());
+		
+	}
+	
+	@DeleteMapping(path = "{id}")
 	@PreAuthorize("hasRole('ADMIN')")
 	public ResponseEntity<?> delete(@PathVariable Integer id){
+		
 		return repository.findById(id)
 				.map(record -> {
 					repository.deleteById(id);
-					return ResponseEntity.ok().body("usuario deletado.");
-				}).orElse(ResponseEntity.status(HttpStatus.NOT_FOUND).body("Id não encontrado."));
+					return ResponseEntity.ok().body(gson.toJson("Deletado com Sucesso"));
+				}).orElse(ResponseEntity.notFound().build());
+		
+	}
+	
+	public String criptografarSenha(String password){
+		BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
+		String passwordParaCriptografar = passwordEncoder.encode(password);
+		return passwordParaCriptografar;
 	}
 
 }
